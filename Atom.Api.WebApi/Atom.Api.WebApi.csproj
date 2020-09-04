@@ -43,4 +43,8 @@
     <ProjectReference Include="..\Atom.Api.Infrastructure.Shared\Atom.Api.Infrastructure.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Services\" />
+  </ItemGroup>
+
 </Project>

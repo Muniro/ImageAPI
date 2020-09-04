@@ -2,19 +2,22 @@ using Atom.Api.Application;
 using Atom.Api.Application.Interfaces;
 using Atom.Api.Application.Utilities;
 using Atom.Api.Infrastructure.Persistence;
+using Atom.Api.Infrastructure.Persistence.Cache;
 using Atom.Api.Infrastructure.Shared;
 using Atom.Api.Infrastructure.Shared.Common_Interfaces;
 using Atom.Api.WebApi.Configurations;
 using Atom.Api.WebApi.Extensions;
-using Atom.Api.WebApi.Services;
 using EasyCaching.Core.Configurations;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
 
 namespace Atom.Api.WebApi
 {
@@ -29,10 +32,23 @@ namespace Atom.Api.WebApi
         }
         public void ConfigureServices(IServiceCollection services)
         {
+
             services.AddApplicationLayer();
             var imageOptionsSection =
                 _config.GetSection("ImageOptions");
             services.Configure<ImageOptions>(imageOptionsSection);
+
+            services.Configure<GzipCompressionProviderOptions>(options =>
+            {
+                options.Level = CompressionLevel.Optimal;
+            });
+            services.AddResponseCompression(options =>
+            {
+                  options.Providers.Add<GzipCompressionProvider>();
+                  options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[] {
+                     "image/png"});
+            });
+
 
             services.AddPersistenceInfrastructure(_config);
             services.AddSharedInfrastructure(_config);
@@ -40,33 +56,9 @@ namespace Atom.Api.WebApi
             services.AddControllers();
             services.AddApiVersioningExtension();
             services.AddHealthChecks();
-            
-            services.AddEasyCaching(options =>
-            {
-                //use redis cache
-                options.UseRedis(redisConfig =>
-                {
-                    //Setup Endpoint, could be dynamically set the server and port details.
-                    redisConfig.DBConfig.Endpoints.Add(new ServerEndPoint("localhost", 6379));
-
-                    /* For production recommend setting up Password!, like this */
-                    //Setup password if applicable
-                    //if (!string.IsNullOrEmpty(serverPassword))
-                    //{
-                    //    redisConfig.DBConfig.Password = serverPassword;
-                    //}
-
-                    /* ======================= */
-
-
-                    //Allow admin operations
-                    redisConfig.DBConfig.AllowAdmin = true;
-                },
-                    "LocalRedis");
-            });
+            services.AddResponseCaching();
             services.AddTransient<IFileHandler, FileHandler>();
-            services.AddTransient<IRedisCacheService, RedisCacheService>();
-           
+                      
         }
 
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
@@ -80,7 +72,11 @@ namespace Atom.Api.WebApi
                 app.UseExceptionHandler("/Error");
                 app.UseHsts();
             }
-            app.UseHttpsRedirection();
+           //not used at all but would recommend! app.UseHttpsRedirection();
+
+            app.UseResponseCompression();
+            app.UseResponseCaching();
+            
             app.UseStaticFiles(new StaticFileOptions
             {
                 FileProvider = new PhysicalFileProvider(
@@ -88,12 +84,13 @@ namespace Atom.Api.WebApi
                 RequestPath = "/Product_Images",
                 OnPrepareResponse = ctx =>
                 {
-                    // sets the Cache-Control heade
+                    // sets the Cache-Control header
                     ctx.Context.Response.Headers.Add(
                          "Cache-Control", $"public, max-age={cacheMaxAge}");
                 }
             }) ;
 
+           
             app.UseRouting();
             app.UseAuthentication();
             app.UseAuthorization();

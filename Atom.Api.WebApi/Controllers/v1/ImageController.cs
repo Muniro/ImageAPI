@@ -2,15 +2,14 @@
 using Atom.Api.Infrastructure.Shared.Common_Interfaces;
 using Atom.Api.WebApi.Configurations;
 using Atom.Api.WebApi.Extensions;
-using EasyCaching.Core;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
+using Microsoft.EntityFrameworkCore.Internal;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using StackExchange.Redis;
+using System;
 using System.IO;
+using System.Linq;
 using System.Net;
-using System.Net.Http;
 using System.Threading.Tasks;
 
 namespace Atom.Api.WebApi.Controllers.v1
@@ -22,60 +21,104 @@ namespace Atom.Api.WebApi.Controllers.v1
         private readonly string folderName;
         private readonly IRedisCacheService redisCacheService;
 
-        public ImageController(IOptions<ImageOptions> options, IHostEnvironment envProvider, IRedisCacheService redisCacheService)
+        public ImageController(IOptions<ImageOptions> imageOptions, IHostEnvironment envProvider, IRedisCacheService redisCacheService)
         {
             this.path=  envProvider.ContentRootPath;
-            this. folderName = options.Value.FolderName;
+            this. folderName = imageOptions.Value.FolderName;
             this.redisCacheService = redisCacheService;
-
-
         }
 
         // GET: api/<controller>
         [HttpGet]
+        [ResponseCache(Duration = 1800)]
         [Route("Get/{name}/{width}/{height}/{type}/{watermark?}/{backgroundColor?}")]
-        public async Task<IActionResult> Get (string name,int width, int height, string type, string watermark="none", string backgroundColor="none" )
+        public async Task<IActionResult> Get (string name,int width, int height, string type, string watermark="", string backgroundColor="")
         {
+            // Get the requested ETag
+            string requestETag = "";
+            if (Request.Headers.ContainsKey("If-None-Match"))
+            {
+                requestETag = Request.Headers["If-None-Match"].First();
+            }
 
             //check distributed cache (Redis) if we had this exact request previously and we have it in cache!
-
-            string concatenatedKey = string.Concat(name, width, height, type, watermark, backgroundColor);
+            string concatenatedKey = GetConcatenatedKey(name, width, height, type, watermark, backgroundColor);
 
             FileContentResult fcr = null;
-            string key = HashExtensions.GetMD5HashString(concatenatedKey);
-           
+            string key = GenerateHashKey(concatenatedKey);
+            byte[] imageBytes;
             if (redisCacheService.HasValudBeenCached(key).Result)
             {
                 //we have this in cache!
-                //string valueInCache= redisCacheService.GetCachedValueAsync(key).Result;
-
-                byte[] imageBytes = redisCacheService.GetCachedValueAsync(key).Result; //System.Text.Encoding.UTF8.GetBytes(valueInCache);
-                fcr = File(imageBytes, $"image/{type}");
+                imageBytes = redisCacheService.GetCachedValueAsync(key).Result;
+               
             }
             else
             {
+                GetImageQuery query = GetImageQueryObject(name, width, height, type, watermark, backgroundColor);
 
-                var query = new GetImageQuery()
-                {
-                    Name = name,
-                    Width = width,
-                    Height = height,
-                    ImageType = type,
-                    Watermark = watermark,
-                    BackgroundColor = backgroundColor,
-                    ImageFileNamePath = Path.Combine(path, folderName, name)
-
-                };
+                //Using CQRS technique to send the query to the mediatR
 
                 var result = await Mediator.Send(query);
-                fcr= File(result.Data.ImageByteArray, $"image/{type}");
 
+                imageBytes = result.Data.ImageByteArray;         
                 //Cache it now
-                redisCacheService.SetCacheValueAsync(key, result.Data.ImageByteArray);
+                redisCacheService.SetCacheValueAsync(key, imageBytes);
             }
 
+           
 
+            // Construct the new ETag
+            string responseETag = key;
+
+            // Return a 304 if the ETag of the current record matches the ETag in the "If-None-Match" HTTP header
+            if (Request.Headers.ContainsKey("If-None-Match") && responseETag == requestETag)
+            {
+                return Ok(StatusCode((int)HttpStatusCode.NotModified));
+            }
+
+            // Add the current ETag to the HTTP header
+            Response.Headers.Add("ETag", responseETag);
+
+            fcr = GetImageFile(type, imageBytes);
             return fcr;
+        }
+
+        private void CheckEtagAndAddToHeaders(string key)
+        {
+            throw new NotImplementedException();
+        }
+
+        private FileContentResult GetImageFile(string type, byte[] imageBytes)
+        {
+            return File(imageBytes, $"image/{type}");
+        }
+
+        private GetImageQuery GetImageQueryObject(string name, int width, int height, string type, string watermark, string backgroundColor)
+        {
+            return new GetImageQuery()
+            {
+                Name = name,
+                Width = width,
+                Height = height,
+                ImageType = type,
+                Watermark = watermark,
+                BackgroundColor = backgroundColor,
+                ImageFileNamePath = Path.Combine(path, folderName, name)
+
+            };
+        }
+
+        private string GetConcatenatedKey(string name, int width, int height, string type, string watermark, string backgroundColor)
+        {
+            return string.Concat(name, width, height, type, watermark, backgroundColor);
+        }
+
+        private string GenerateHashKey(string concatenatedKey)
+        {
+           /* We hash the parameters together to form a unique hash for use as Redis cache Key, 
+            * that represents uniquely that combination and we use MD5 hash */
+            return HashExtensions.GetMD5HashString(concatenatedKey);
         }
     }
 }

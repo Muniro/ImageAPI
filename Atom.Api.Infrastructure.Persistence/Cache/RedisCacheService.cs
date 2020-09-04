@@ -1,32 +1,32 @@
-﻿using Atom.Api.Infrastructure.Shared.Common_Interfaces;
-using Atom.Api.WebApi.Configurations;
+﻿using Atom.Api.Infrastructure.Persistence.Configurations;
+using Atom.Api.Infrastructure.Shared.Common_Interfaces;
 using EasyCaching.Core;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 using System;
 using System.Threading.Tasks;
 
-namespace Atom.Api.WebApi.Services
+namespace Atom.Api.Infrastructure.Persistence.Cache
 {
     public class RedisCacheService : IRedisCacheService
     {
 
         private IEasyCachingProvider cachingProvider;
-        private readonly ImageOptions options;
+        private readonly CacheOptions options;
         private IEasyCachingProviderFactory cachingProviderFactory;
 
-        public RedisCacheService(IOptions<ImageOptions> options,IEasyCachingProviderFactory cachingProviderFactory)
+        public RedisCacheService(IOptions<CacheOptions> cacheOptions,IEasyCachingProviderFactory cachingProviderFactory)
         {
-            this.options = options.Value;
+            this.options = cacheOptions.Value;
             this.cachingProviderFactory = cachingProviderFactory;
-            this.cachingProvider = this.cachingProviderFactory.GetCachingProvider(options.Value.LocalCacheName);
+            this.cachingProvider = this.cachingProviderFactory.GetCachingProvider(options.LocalCacheName);
             
         }
         public async Task<Byte[]> GetCachedValueAsync(string key)
         {
             Byte[] cachedValue = null;
 
-            using (var multiplexer = ConnectionMultiplexer.Connect("localhost:6379"))
+            using (var multiplexer = ConnectionMultiplexer.Connect(options.CacheAddress))
             {
                 var db = multiplexer.GetDatabase();
                 cachedValue= await db.StringGetAsync(key);
@@ -43,10 +43,10 @@ namespace Atom.Api.WebApi.Services
         {
            
 
-            using(var multiplexer= ConnectionMultiplexer.Connect("localhost:6379"))
+            using(var multiplexer= ConnectionMultiplexer.Connect(options.CacheAddress))
             {
                 var db = multiplexer.GetDatabase();
-                db.StringSet(key, value, TimeSpan.FromMinutes(60));
+                db.StringSet(key, value, TimeSpan.FromMinutes((int)options.CacheTimeSpanInMinutes));
             }
 
         }

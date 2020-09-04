@@ -48,6 +48,7 @@ namespace Atom.Api.Application.Utilities
 
         private TextWatermarkOptions ApplyWaterMark(string waterMark, string backgroundColor, Image scaledImage, TextWatermarkOptions tOps)
         {
+           
             if (!string.IsNullOrEmpty(backgroundColor))
             {
                 tOps = new TextWatermarkOptions
