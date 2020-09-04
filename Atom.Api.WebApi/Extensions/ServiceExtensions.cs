@@ -19,39 +19,9 @@ namespace Atom.Api.WebApi.Extensions
                 {
                     Version = "v1",
                     Title = "Clean Architecture - Atom.Api.WebApi",
-                    Description = "This Api will be responsible for overall data distribution and authorization.",
-                    Contact = new OpenApiContact
-                    {
-                        Name = "codewithmukesh",
-                        Email = "hello@codewithmukesh.com",
-                        Url = new Uri("https://codewithmukesh.com/contact"),
-                    }
+                    Description = "This Api will be responsible for overall data distribution and authorization."
                 });
-                c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-                {
-                    Name = "Authorization",
-                    In = ParameterLocation.Header,
-                    Type = SecuritySchemeType.ApiKey,
-                    Scheme = "Bearer",
-                    BearerFormat = "JWT",
-                    Description = "Input your Bearer token in this format - Bearer {your token here} to access this API",
-                });
-                c.AddSecurityRequirement(new OpenApiSecurityRequirement
-                {
-                    {
-                        new OpenApiSecurityScheme
-                        {
-                            Reference = new OpenApiReference
-                            {
-                                Type = ReferenceType.SecurityScheme,
-                                Id = "Bearer",
-                            },
-                            Scheme = "Bearer",
-                            Name = "Bearer",
-                            In = ParameterLocation.Header,
-                        }, new List<string>()
-                    },
-                });
+                
             });
         }
         public static void AddApiVersioningExtension(this IServiceCollection services)
